@@ -144,8 +144,9 @@ models/             trained models (il/, ppo/, dqn_real.zip)
 - Degradation is a throughput proxy, not an electrochemical ageing model.
 - WLTC with the guard is not a clean held-out result (see above), and only two real test cycles exist.
 
-## Next steps
+## Roadmap after half-term
 
-1. Confirm on fresh real cycles that played no part in any decision (for example EPA US06, SC03 or NYCC).
-2. Add WLTC-like high-speed segments to the training traffic so the policy itself, not only the guard, respects the SOC window.
-3. Replace the degradation proxy with a calibrated ageing model.
+1. **Prove it on new roads.** Clean held-out tests on EPA US06, SC03 and NYCC, and the Indian MIDC cycle, none of which played any part in a decision.
+2. **Raise model fidelity.** Cross-check the vehicle model against NREL FASTSim; add a multi-speed gearbox, road grade and a calibrated battery ageing model.
+3. **Smarter controller.** Add high-speed segments to training traffic so the policy keeps SOC in its window without the guard; add route and traffic preview.
+4. **Toward a real ECU.** Export the network to ONNX, measure its latency on embedded hardware, run hardware-in-the-loop tests, and write the final report.
