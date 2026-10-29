@@ -72,10 +72,14 @@ class HEVTorqueSplitEnv(gym.Env):
         cycle_duration_s: int = 1200,
         dt: float = 1.0,
         reward_scale: float = 10.0,
+        fixed_cycles: list[np.ndarray] | None = None,
+        p_fixed: float = 0.5,
     ):
         super().__init__()
         self.p = params or VehicleParams()
         self.patterns = patterns
+        self.fixed_cycles = fixed_cycles or []
+        self.p_fixed = p_fixed if self.fixed_cycles else 0.0
         self.cycle_duration_s = cycle_duration_s
         self.dt = dt
         self.reward_scale = reward_scale
@@ -113,6 +117,8 @@ class HEVTorqueSplitEnv(gym.Env):
         options = options or {}
         if "speed" in options:
             speed = np.asarray(options["speed"], dtype=float)
+        elif self.fixed_cycles and self.np_random.random() < self.p_fixed:
+            speed = self.fixed_cycles[self.np_random.integers(len(self.fixed_cycles))]
         else:
             pattern = options.get("pattern", self.np_random.choice(self.patterns))
             speed = generate_cycle(pattern, self.cycle_duration_s, self.np_random, self.dt)
