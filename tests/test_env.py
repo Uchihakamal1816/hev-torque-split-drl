@@ -54,3 +54,26 @@ def test_rule_based_controller_returns_valid_actions():
         obs, _, _, done, _ = env.step(a)
         if done:
             break
+
+
+def test_soc_stays_within_hard_limits_over_a_braking_heavy_cycle():
+    from hev.datasets import load_cycle
+    env = HEVTorqueSplitEnv()
+    obs, _ = env.reset(options={"speed": load_cycle("wltc_class3b"), "soc0": 0.75})
+    done = False
+    while not done:
+        obs, _, _, done, info = env.step(ice_only_action(obs))
+        assert info["soc"] <= env.p.soc_max + 0.005  # at most one step of overshoot
+
+
+def test_soc_guard_blocks_charging_near_top_and_assist_near_bottom():
+    from hev.controllers import with_soc_guard
+    from hev.env import T_NORM
+    always_charge = lambda obs: len(RATIOS) - 1  # ratio 1.25
+    always_ev = lambda obs: 0  # ratio 0.0
+    high = np.array([0.73, 0.5, 0.0, 60 / T_NORM, 0.2, 1.0], dtype=np.float32)
+    low = np.array([0.36, 0.5, 0.0, 60 / T_NORM, 0.2, 1.0], dtype=np.float32)
+    assert RATIOS[with_soc_guard(always_charge)(high)] <= 0.25
+    assert RATIOS[with_soc_guard(always_ev)(low)] >= 1.0
+    mid = np.array([0.55, 0.5, 0.0, 60 / T_NORM, 0.2, 1.0], dtype=np.float32)
+    assert with_soc_guard(always_charge)(mid) == always_charge(mid)  # no override inside the window

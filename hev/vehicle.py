@@ -111,10 +111,12 @@ def allocate(t_req: float, omega: float, soc: float, ice_share: float, p: Vehicl
         t_ice = float(np.clip(t_req - t_em, 0.0, p.ice_max_torque))
         if t_ice < p.ice_min_torque:
             t_ice = 0.0
-    t_em = t_req - t_ice
-
-    unmet = max(0.0, t_em - hi) if t_req > 0 else 0.0
-    brake = max(0.0, lo - t_em) if t_req < 0 else 0.0
+    # The motor can only deliver what its limits allow. Traction it cannot
+    # cover is unmet; braking it cannot absorb goes to the friction brakes.
+    t_em_needed = t_req - t_ice
+    t_em = min(max(t_em_needed, lo), hi)
+    unmet = max(0.0, t_em_needed - hi) if t_req > 0 else 0.0
+    brake = max(0.0, lo - t_em_needed) if t_req < 0 else 0.0
     return Split(t_ice=t_ice, t_em=t_em, ice_on=t_ice > 0.0, unmet=unmet, brake=brake)
 
 

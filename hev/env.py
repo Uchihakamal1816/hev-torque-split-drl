@@ -59,6 +59,7 @@ class Totals:
     unmet_nm: float = 0.0
     brake_nm: float = 0.0
     soc_violation_steps: int = 0
+    cost_g: float = 0.0  # full controller cost, including penalties and terminal correction
     trace: dict[str, list[float]] = field(default_factory=lambda: {k: [] for k in ("soc", "ice_on", "fuel_g")})
 
 
@@ -74,12 +75,14 @@ class HEVTorqueSplitEnv(gym.Env):
         reward_scale: float = 10.0,
         fixed_cycles: list[np.ndarray] | None = None,
         p_fixed: float = 0.5,
+        start_cost: float = START_COST_G,
     ):
         super().__init__()
         self.p = params or VehicleParams()
         self.patterns = patterns
         self.fixed_cycles = fixed_cycles or []
         self.p_fixed = p_fixed if self.fixed_cycles else 0.0
+        self.start_cost = start_cost
         self.cycle_duration_s = cycle_duration_s
         self.dt = dt
         self.reward_scale = reward_scale
@@ -149,7 +152,7 @@ class HEVTorqueSplitEnv(gym.Env):
         cost = (
             fuel
             + deg
-            + START_COST_G * start
+            + self.start_cost * start
             + SOC_PENALTY_G_PER_UNIT * violation
             + UNMET_PENALTY_G_PER_NM * split.unmet
         )
@@ -162,6 +165,7 @@ class HEVTorqueSplitEnv(gym.Env):
             cost += delta_kwh * G_FUEL_PER_KWH
 
         tot = self.totals
+        tot.cost_g += cost
         tot.fuel_g += fuel
         tot.distance_m += self._speed[t] * self.dt
         tot.ah += abs(current) * self.dt / 3600.0
@@ -203,4 +207,5 @@ class HEVTorqueSplitEnv(gym.Env):
             "engine_on_frac": tot.engine_on_steps / len(self._speed),
             "unmet_nm": tot.unmet_nm,
             "soc_violation_frac": tot.soc_violation_steps / len(self._speed),
+            "full_cost_g": tot.cost_g,
         }

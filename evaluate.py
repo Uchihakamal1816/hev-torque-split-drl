@@ -1,14 +1,17 @@
-"""Compare ICE-only, rule-based and DQN torque-split policies on held-out cycles.
+"""Final, one-shot evaluation on the TEST split.
 
-Two held-out sets:
-  synthetic: 4 traffic patterns x 10 unseen seeds (generated, never trained on)
-  real:      WLTC class 3a and 3b (published cycles, never trained on by any model)
+Test split: synthetic seeds 1000-1009 (4 patterns, 40 cycles) and the real
+WLTC class 3a and 3b cycles. No model or hyperparameter was chosen on these
+cycles; choices were made on the validation split (validate.py).
+
+Multi-seed methods are reported as mean ± std across training seeds.
 """
 
 from __future__ import annotations
 
 import argparse
 import pathlib
+import re
 
 import matplotlib
 
@@ -18,99 +21,90 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from stable_baselines3 import DQN  # noqa: E402
 
-from hev.controllers import ice_only_action, rule_based_action  # noqa: E402
-from hev.cycles import generate_cycle  # noqa: E402
-from hev.datasets import TEST_REAL, load_cycle  # noqa: E402
+from hev.controllers import ice_only_action, rule_based_action, with_soc_guard  # noqa: E402
+from hev.datasets import load_cycle  # noqa: E402
 from hev.env import HEVTorqueSplitEnv  # noqa: E402
+from hev.evaluation import TEST_SEEDS, dp_factory, evaluate, real_test_set, run_episode, static, synthetic_set  # noqa: E402
+from validate import load_il, load_ppo  # noqa: E402
 
-PATTERNS = ("urban", "suburban", "highway", "mixed")
-EVAL_SEEDS = range(1000, 1010)  # disjoint from training seeds
-SOC0 = 0.60
-METRICS = ["l_per_100km", "delta_soc", "engine_starts", "engine_on_frac", "unmet_nm", "degradation_g"]
-
-
-def run_episode(env, policy, speed: np.ndarray, soc0: float):
-    obs, _ = env.reset(options={"speed": speed, "soc0": soc0})
-    done = False
-    while not done:
-        obs, _, _, done, _ = env.step(policy(obs))
-    return env.summary(), env.totals.trace
+METRICS = ["objective_l_eq_100km", "full_cost_l_eq_100km", "soc_violation_frac", "l_per_100km", "degradation_g", "engine_starts", "delta_soc", "unmet_nm"]
+SEED_RE = re.compile(r"^(.*) \[seed(\d+)\]$")
 
 
-def build_policies(args) -> dict:
-    policies = {"ICE only": ice_only_action, "Rule-based": rule_based_action}
-    for label, path in (("DQN synthetic", args.synthetic_model), ("DQN real", args.real_model)):
-        if path.exists():
-            model = DQN.load(path, device="cpu")
-            policies[label] = (lambda m: lambda obs: int(m.predict(obs, deterministic=True)[0]))(model)
-        else:
-            print(f"[warn] {path} not found, skipping {label}")
-    return policies
+def factories(args) -> dict:
+    f = {"ICE only": static(ice_only_action), "Rule-based": static(rule_based_action)}
+    if args.dqn.exists():
+        dqn = DQN.load(args.dqn, device="cpu")
+        f["DQN (from scratch)"] = static(lambda obs: int(dqn.predict(obs, deterministic=True)[0]))
+    for p in sorted(pathlib.Path("models/il").glob(f"il_sc{args.start_cost}_seed*.pt")):
+        f[f"Imitation of DP [seed{p.stem[-1]}]"] = static(load_il(p))
+        f[f"Imitation of DP + SOC guard [seed{p.stem[-1]}]"] = static(with_soc_guard(load_il(p)))
+    for p in sorted(pathlib.Path("models/ppo").glob(f"ilppo_sc{args.start_cost}_seed*.zip")):
+        f[f"Imitation + PPO [seed{p.stem[-1]}]"] = static(load_ppo(p))
+    f["DP (optimal, non-causal)"] = dp_factory
+    return f
 
 
-def evaluate_set(env, policies, cycles, label_of, traces=None):
-    rows = []
-    for key, speed in cycles:
-        for name, policy in policies.items():
-            summary, trace = run_episode(env, policy, speed, SOC0)
-            rows.append({"cycle": label_of(key), "policy": name, **summary})
-            if traces is not None and key in traces["keys"]:
-                traces["data"][(label_of(key), name)] = trace
-    return pd.DataFrame(rows)
+def summarise(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    m = df["policy"].str.extract(SEED_RE.pattern)
+    df["method"] = m[0].fillna(df["policy"])
+    df["seed"] = m[1].fillna("-")
+    per_seed = df.groupby(["method", "seed"])[METRICS].mean()
+    mean = per_seed.groupby("method").mean()
+    std = per_seed.groupby("method").std().fillna(0.0)
+    out = mean.round(3).astype(str)
+    for col in METRICS:
+        multi = per_seed.groupby("method").size() > 1
+        out.loc[multi, col] = [f"{a:.3f} ± {b:.3f}" for a, b in zip(mean.loc[multi, col], std.loc[multi, col])]
+    return out.loc[mean.sort_values("objective_l_eq_100km").index]
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--synthetic-model", type=pathlib.Path, default=pathlib.Path("models/dqn_synthetic.zip"))
-    ap.add_argument("--real-model", type=pathlib.Path, default=pathlib.Path("models/dqn_real.zip"))
+    ap.add_argument("--start-cost", type=int, default=1, help="start-cost variant selected on validation")
+    ap.add_argument("--dqn", type=pathlib.Path, default=pathlib.Path("models/dqn_real.zip"))
     ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("results"))
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
-    policies = build_policies(args)
+    f = factories(args)
+    syn = evaluate(f, synthetic_set(TEST_SEEDS))
+    real = evaluate(f, real_test_set())
+    syn.to_csv(args.out / "test_synthetic_per_cycle.csv", index=False)
+    real.to_csv(args.out / "test_wltc_per_cycle.csv", index=False)
+
+    syn_sum, real_sum = summarise(syn), summarise(real)
+    syn_sum.to_csv(args.out / "test_synthetic_summary.csv")
+    real_sum.to_csv(args.out / "test_wltc_summary.csv")
+    print("TEST: synthetic traffic (40 unseen cycles). Objective = fuel + degradation, L-eq/100 km\n")
+    print(syn_sum.to_markdown())
+    print("\nTEST: real WLTC class 3a + 3b (never trained on)\n")
+    print(real_sum.to_markdown())
+
+    by_pattern = syn.assign(method=syn["policy"].str.replace(r" \[seed\d+\]$", "", regex=True))
+    bp = by_pattern.groupby(["group", "method"])[["objective_l_eq_100km", "l_per_100km"]].mean().round(3)
+    bp.to_csv(args.out / "test_synthetic_by_pattern.csv")
+
+    # SOC and cumulative fuel on WLTC 3b for the main controllers.
     env = HEVTorqueSplitEnv()
-
-    # Synthetic held-out set
-    syn_cycles = [((p, s), generate_cycle(p, env.cycle_duration_s, np.random.default_rng(s)))
-                  for p in PATTERNS for s in EVAL_SEEDS]
-    syn_df = evaluate_set(env, policies, syn_cycles, lambda k: k[0])
-    syn_df["seed"] = [s for p in PATTERNS for s in EVAL_SEEDS for _ in policies]
-    syn_df.to_csv(args.out / "per_cycle.csv", index=False)
-    syn_table = syn_df.groupby(["cycle", "policy"])[METRICS].mean().round(3)
-    syn_table.to_csv(args.out / "summary_by_pattern.csv")
-    syn_overall = syn_df.groupby("policy")[METRICS].mean().round(3)
-    syn_overall.to_csv(args.out / "summary_overall.csv")
-
-    # Real held-out set (WLTC class 3a and 3b)
-    real_cycles = [(n, load_cycle(n)) for n in TEST_REAL]
-    traces = {"keys": {n for n in TEST_REAL}, "data": {}}
-    real_df = evaluate_set(env, policies, real_cycles, lambda k: k, traces)
-    real_df.to_csv(args.out / "real_cycles.csv", index=False)
-    real_overall = real_df.groupby("policy")[METRICS].mean().round(3)
-    real_overall.to_csv(args.out / "real_summary_overall.csv")
-
-    print("\nSynthetic held-out, mean over 40 cycles (L/100 km is SOC-corrected):")
-    print(syn_overall.to_markdown())
-    print("\nSynthetic held-out, by pattern:")
-    print(syn_table.to_markdown())
-    print("\nReal held-out (WLTC 3a + 3b):")
-    print(real_df[["cycle", "policy", "l_per_100km", "delta_soc", "engine_starts", "engine_on_frac", "unmet_nm"]].round(3).to_markdown(index=False))
-
+    speed = load_cycle("wltc_class3b")
+    show = ["Rule-based", "Imitation of DP [seed0]", "DP (optimal, non-causal)"]
     fig, axes = plt.subplots(2, 1, figsize=(9, 6), sharex=True)
-    for name in policies:
-        tr = traces["data"].get(("wltc_class3b", name))
-        if tr is None:
+    for name in show:
+        if name not in f:
             continue
-        axes[0].plot(tr["soc"], label=name)
-        axes[1].plot(np.cumsum(tr["fuel_g"]), label=name)
+        run_episode(env, f[name], speed)
+        axes[0].plot(env.totals.trace["soc"], label=name.replace(" [seed0]", ""))
+        axes[1].plot(np.cumsum(env.totals.trace["fuel_g"]), label=name.replace(" [seed0]", ""))
     axes[0].set_ylabel("SOC")
     axes[1].set_ylabel("cumulative fuel (g)")
     axes[1].set_xlabel("time (s)")
     axes[0].legend()
-    axes[0].set_title("WLTC class 3b (held out)")
+    axes[0].set_title("WLTC class 3b (held-out test cycle)")
     fig.tight_layout()
     fig.savefig(args.out / "wltc3b_soc_fuel.png", dpi=120)
-    print(f"\nwrote tables and plots to {args.out}/")
+    print(f"\nwrote test tables and plot to {args.out}/")
 
 
 if __name__ == "__main__":

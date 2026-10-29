@@ -70,3 +70,23 @@ def test_fuel_zero_without_engine_and_bsfc_best_near_sweet_spot():
     assert fuel_g(0.0, 300.0, 1.0, P) == 0.0
     assert bsfc_g_per_kwh(0.8 * P.ice_max_torque, 0.45 * P.ice_max_speed, P) == pytest.approx(230.0)
     assert bsfc_g_per_kwh(0.1 * P.ice_max_torque, 0.45 * P.ice_max_speed, P) > 230.0
+
+
+def test_regen_is_limited_by_charge_power_and_excess_goes_to_friction_brake():
+    # Hard braking at speed: far more regen torque than the 20 kW charge limit allows.
+    split = allocate(t_req=-200.0, omega=300.0, soc=0.6, ice_share=0.0, p=P)
+    charge_limit = -P.max_charge_kw * 1000.0 / (P.em_eff * 300.0)
+    assert split.t_em == pytest.approx(charge_limit)
+    assert split.brake == pytest.approx(charge_limit - (-200.0))
+
+
+def test_no_regen_at_soc_ceiling():
+    split = allocate(t_req=-50.0, omega=300.0, soc=P.soc_max, ice_share=0.0, p=P)
+    assert split.t_em == 0.0
+    assert split.brake == pytest.approx(50.0)
+
+
+def test_battery_draw_never_exceeds_motor_limit_when_request_is_infeasible():
+    split = allocate(t_req=400.0, omega=300.0, soc=0.6, ice_share=1.0, p=P)
+    assert split.unmet > 0.0
+    assert battery_power(split.t_em, 300.0, P) <= P.max_discharge_kw * 1000.0 + 1e-6

@@ -41,3 +41,33 @@ def rule_based_action(obs: np.ndarray) -> int:
 
 def ice_only_action(obs: np.ndarray) -> int:
     return ICE_ONLY_INDEX
+
+
+# SOC safety guard thresholds, set from the 0.35-0.75 SOC window with a margin (not tuned).
+GUARD_NO_CHARGE_SOC = 0.70  # above this, never command battery charging
+GUARD_MOTOR_LED_SOC = 0.72  # above this, the motor leads (engine share at most 0.25)
+GUARD_NO_ASSIST_SOC = 0.38  # below this, the engine covers the full request
+
+
+def with_soc_guard(policy):
+    """Wrap a learned policy with a rule-based shield that keeps SOC inside its window.
+
+    The learned policy proposes an action; the guard only overrides it near
+    the edges of the SOC window, where battery health matters most.
+    """
+
+    def guarded(obs: np.ndarray) -> int:
+        action = policy(obs)
+        soc = float(obs[0])
+        t_req = float(obs[3]) * T_NORM
+        ratio = float(RATIOS[action])
+        if t_req > 0:
+            if soc > GUARD_MOTOR_LED_SOC:
+                ratio = min(ratio, 0.25)
+            elif soc > GUARD_NO_CHARGE_SOC:
+                ratio = min(ratio, 1.0)
+            elif soc < GUARD_NO_ASSIST_SOC:
+                ratio = max(ratio, 1.0)
+        return int(np.argmin(np.abs(RATIOS - ratio)))
+
+    return guarded

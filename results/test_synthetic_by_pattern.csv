@@ -1,0 +1,29 @@
+group,method,objective_l_eq_100km,l_per_100km
+highway,"DP (optimal, non-causal)",5.221,5.147
+highway,DQN (from scratch),6.05,5.285
+highway,ICE only,5.224,5.152
+highway,Imitation + PPO,5.221,5.147
+highway,Imitation of DP,5.221,5.147
+highway,Imitation of DP + SOC guard,5.221,5.147
+highway,Rule-based,5.567,5.158
+mixed,"DP (optimal, non-causal)",5.552,4.717
+mixed,DQN (from scratch),6.592,4.884
+mixed,ICE only,5.532,4.779
+mixed,Imitation + PPO,5.606,4.714
+mixed,Imitation of DP,5.589,4.718
+mixed,Imitation of DP + SOC guard,5.611,4.72
+mixed,Rule-based,6.134,4.742
+suburban,"DP (optimal, non-causal)",3.737,2.857
+suburban,DQN (from scratch),4.591,2.97
+suburban,ICE only,3.774,2.962
+suburban,Imitation + PPO,3.928,2.839
+suburban,Imitation of DP,3.809,2.844
+suburban,Imitation of DP + SOC guard,3.809,2.844
+suburban,Rule-based,4.45,2.871
+urban,"DP (optimal, non-causal)",3.562,2.112
+urban,DQN (from scratch),4.665,2.506
+urban,ICE only,4.227,3.065
+urban,Imitation + PPO,3.703,2.092
+urban,Imitation of DP,3.622,2.092
+urban,Imitation of DP + SOC guard,3.622,2.092
+urban,Rule-based,4.233,2.319
