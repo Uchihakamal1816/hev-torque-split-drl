@@ -1,0 +1,13 @@
+pattern,policy,l_per_100km,delta_soc,engine_starts,engine_on_frac,unmet_nm,degradation_g
+highway,DQN,5.252,-0.254,3.8,0.97,0.0,160.997
+highway,ICE only,5.147,0.024,3.9,0.989,0.0,31.509
+highway,Rule-based,5.153,-0.143,30.0,0.918,0.0,119.188
+mixed,DQN,4.762,-0.208,32.6,0.774,0.0,700.039
+mixed,ICE only,4.624,0.244,38.8,0.865,0.0,487.493
+mixed,Rule-based,4.599,-0.076,25.5,0.594,0.0,656.544
+suburban,DQN,3.012,-0.14,107.3,0.751,0.0,161.758
+suburban,ICE only,2.939,0.136,78.1,0.831,0.0,110.712
+suburban,Rule-based,2.847,-0.147,92.1,0.411,0.0,198.903
+urban,DQN,2.79,0.005,170.4,0.519,0.427,57.75
+urban,ICE only,3.053,0.082,140.4,0.615,0.0,45.998
+urban,Rule-based,2.307,-0.087,12.5,0.095,0.0,73.334

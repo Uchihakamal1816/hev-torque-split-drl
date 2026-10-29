@@ -1,0 +1,4 @@
+policy,l_per_100km,delta_soc,engine_starts,engine_on_frac,unmet_nm,degradation_g
+DQN,3.954,-0.149,78.525,0.753,0.107,270.136
+ICE only,3.941,0.122,65.3,0.825,0.0,168.928
+Rule-based,3.727,-0.113,40.025,0.504,0.0,261.992
